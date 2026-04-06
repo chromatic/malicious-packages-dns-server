@@ -1,0 +1,20 @@
+{
+  "id": "MAL-2024-002",
+  "affected": [
+    {
+      "package": {
+        "ecosystem": "npm",
+        "name": "evil-package"
+      },
+      "ranges": [
+        {
+          "type": "SEMVER",
+          "events": [
+            {"introduced": "1.0.0"},
+            {"fixed": "1.2.0"}
+          ]
+        }
+      ]
+    }
+  ]
+}

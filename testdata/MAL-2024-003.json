@@ -1,0 +1,19 @@
+{
+  "id": "MAL-2024-003",
+  "affected": [
+    {
+      "package": {
+        "ecosystem": "npm",
+        "name": "@scope/scoped-evil"
+      },
+      "ranges": [
+        {
+          "type": "ECOSYSTEM",
+          "events": [
+            {"introduced": "0"}
+          ]
+        }
+      ]
+    }
+  ]
+}

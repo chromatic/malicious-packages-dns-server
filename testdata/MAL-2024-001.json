@@ -1,0 +1,12 @@
+{
+  "id": "MAL-2024-001",
+  "affected": [
+    {
+      "package": {
+        "ecosystem": "PyPI",
+        "name": "malicious-pkg"
+      },
+      "versions": ["1.0.0", "1.0.1"]
+    }
+  ]
+}

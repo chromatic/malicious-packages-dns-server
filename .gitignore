@@ -1,0 +1,6 @@
+/tmp/malicious-packages*.bolt
+/tmp/malicious-packages*.bolt.gz
+/tmp/malicious-packages*.bolt.gz.sha256
+malicious-packages.bolt
+malicious-packages.bolt.gz
+malicious-packages.bolt.gz.sha256

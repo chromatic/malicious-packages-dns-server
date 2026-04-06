@@ -1,0 +1,85 @@
+# Polls ossf/malicious-packages every 3 hours.
+# If there are commits in the last 3 hours, rebuilds malicious-packages.bolt.gz
+# and publishes it as the data-latest release asset in this repo.
+name: Rebuild malicious-packages.bolt
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'  # every 3 hours, off the :00 mark
+  workflow_dispatch:         # allow manual trigger
+
+jobs:
+  check-and-rebuild:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check for recent ossf/malicious-packages commits
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SINCE=$(date -u -d '3 hours ago' '+%Y-%m-%dT%H:%M:%SZ')
+          COUNT=$(gh api \
+            "repos/ossf/malicious-packages/commits?since=${SINCE}&per_page=1" \
+            --jq 'length')
+          echo "commits_since=${COUNT}" >> "$GITHUB_OUTPUT"
+          if [[ "$COUNT" -eq 0 ]]; then
+            echo "No new commits in ossf/malicious-packages since ${SINCE}, skipping rebuild."
+          else
+            echo "${COUNT} new commit(s) found, will rebuild."
+          fi
+
+      - name: Checkout ossf/malicious-packages
+        if: steps.check.outputs.commits_since != '0'
+        uses: actions/checkout@v4
+        with:
+          repository: ossf/malicious-packages
+          path: ossf-malicious-packages
+          fetch-depth: 0
+
+      - name: Checkout malicious-packages-dns
+        if: steps.check.outputs.commits_since != '0'
+        uses: actions/checkout@v4
+        with:
+          path: malicious-packages-dns
+
+      - name: Set up Go
+        if: steps.check.outputs.commits_since != '0'
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: malicious-packages-dns/go.sum
+
+      - name: Build ingest binary
+        if: steps.check.outputs.commits_since != '0'
+        working-directory: malicious-packages-dns
+        run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /usr/local/bin/ingest ./cmd/ingest
+
+      - name: Run ingest
+        if: steps.check.outputs.commits_since != '0'
+        run: ingest --repo=ossf-malicious-packages --out=malicious-packages.bolt
+
+      - name: Compress and checksum
+        if: steps.check.outputs.commits_since != '0'
+        run: |
+          gzip -k malicious-packages.bolt
+          sha256sum malicious-packages.bolt.gz > malicious-packages.bolt.gz.sha256
+
+      - name: Publish release asset
+        if: steps.check.outputs.commits_since != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: malicious-packages-dns
+        run: |
+          TAG="data-latest"
+          OSSF_SHA=$(git -C ../ossf-malicious-packages rev-parse HEAD)
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "Latest malicious-packages data" \
+            --notes "Built from ossf/malicious-packages@${OSSF_SHA}" \
+            --latest=false \
+            ../malicious-packages.bolt.gz \
+            ../malicious-packages.bolt.gz.sha256
