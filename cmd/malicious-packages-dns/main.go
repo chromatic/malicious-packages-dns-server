@@ -32,6 +32,10 @@ func main() {
 
 	handler := internaldns.NewHandler(s, *zone, uint32(*ttlHit), uint32(*ttlMiss))
 
+	// currentStore tracks whichever store is active; updated on each SIGHUP reload
+	// so that the shutdown path always closes the right one.
+	var currentStore internaldns.Storer = s
+
 	udpServer := &miekgdns.Server{Addr: *listen, Net: "udp", Handler: handler}
 	tcpServer := &miekgdns.Server{Addr: *listen, Net: "tcp", Handler: handler}
 
@@ -60,13 +64,14 @@ func main() {
 				}
 				old := handler.SwapStore(newStore)
 				old.Close()
+				currentStore = newStore
 				slog.Info("data file reloaded")
 
 			default:
 				slog.Info("shutting down", "signal", sig)
 				udpServer.Shutdown()
 				tcpServer.Shutdown()
-				s.Close()
+				currentStore.Close()
 				return
 			}
 		}
@@ -83,6 +88,7 @@ func newLogger(level string) *slog.Logger {
 	case "error":
 		l = slog.LevelError
 	default:
+		slog.Warn("unknown log level, defaulting to info", "level", level)
 		l = slog.LevelInfo
 	}
 	return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: l}))

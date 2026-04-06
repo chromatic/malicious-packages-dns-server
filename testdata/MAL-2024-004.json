@@ -1,0 +1,22 @@
+{
+  "id": "MAL-2024-004",
+  "affected": [
+    {
+      "package": {
+        "ecosystem": "npm",
+        "name": "multi-range-pkg"
+      },
+      "ranges": [
+        {
+          "type": "SEMVER",
+          "events": [
+            {"introduced": "1.0.0"},
+            {"fixed": "1.2.0"},
+            {"introduced": "2.0.0"},
+            {"fixed": "2.1.0"}
+          ]
+        }
+      ]
+    }
+  ]
+}

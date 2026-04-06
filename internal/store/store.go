@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base32"
-	"encoding/binary"
 	"encoding/gob"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/chromatic/malicious-packages-dns-server/internal/version"
 	bolt "go.etcd.io/bbolt"
@@ -36,7 +36,8 @@ type Result struct {
 
 // Store is a read-only view of the bbolt database.
 type Store struct {
-	db *bolt.DB
+	db         *bolt.DB
+	rangeCache sync.Map // key: string(pkgHash), value: []rangeEntry
 }
 
 // Open opens an existing bbolt database file for reading.
@@ -60,25 +61,14 @@ func (s *Store) Lookup(ecosystem, name, ver string) (Result, bool) {
 
 	var result Result
 	_ = s.db.View(func(tx *bolt.Tx) error {
-		if b := tx.Bucket(bucketVersion); b != nil {
-			if v := b.Get(append(pkgHash, verHash...)); v != nil {
-				result = Result{OSVID: string(v), MatchLevel: "version"}
-				return nil
-			}
+		result = s.lookupVersion(tx, pkgHash, verHash, ver)
+		if result.MatchLevel != "" {
+			return nil
 		}
-		// Semver ranges
-		if b := tx.Bucket(bucketSemver); b != nil {
-			if v := b.Get(pkgHash); v != nil {
-				if r, ok := evalRanges(v, ver); ok {
-					result = Result{OSVID: r.OSVID, MatchLevel: "version"}
-					return nil
-				}
-			}
-		}
+		// Package-level fallback.
 		if b := tx.Bucket(bucketPackage); b != nil {
 			if v := b.Get(pkgHash); v != nil {
 				result = Result{OSVID: string(v), MatchLevel: "package"}
-				return nil
 			}
 		}
 		return nil
@@ -118,7 +108,8 @@ func (s *Store) LookupHash(verLabel, pkgLabel, bucket string) (Result, bool) {
 		if err != nil {
 			return Result{}, false
 		}
-		// Decode verLabel back to the plaintext version string.
+		// verLabel is base32(plaintext version string). The decoded bytes are always
+		// treated as a string for semver parsing — never executed or passed to unsafe APIs.
 		verBytes, err := encoding.DecodeString(verLabel)
 		if err != nil {
 			return Result{}, false
@@ -128,21 +119,7 @@ func (s *Store) LookupHash(verLabel, pkgLabel, bucket string) (Result, bool) {
 
 		var result Result
 		_ = s.db.View(func(tx *bolt.Tx) error {
-			// Exact version hit.
-			if b := tx.Bucket(bucketVersion); b != nil {
-				if v := b.Get(append(pkgHash, verHash...)); v != nil {
-					result = Result{OSVID: string(v), MatchLevel: "version"}
-					return nil
-				}
-			}
-			// Semver range fallback.
-			if b := tx.Bucket(bucketSemver); b != nil {
-				if v := b.Get(pkgHash); v != nil {
-					if r, ok := evalRanges(v, ver); ok {
-						result = Result{OSVID: r.OSVID, MatchLevel: "version"}
-					}
-				}
-			}
+			result = s.lookupVersion(tx, pkgHash, verHash, ver)
 			return nil
 		})
 		if result.MatchLevel == "" {
@@ -153,6 +130,26 @@ func (s *Store) LookupHash(verLabel, pkgLabel, bucket string) (Result, bool) {
 	default:
 		return Result{}, false
 	}
+}
+
+// lookupVersion is the shared transaction helper for exact-version + semver-range lookups.
+// It does NOT check the package bucket; callers that need package-level fallback must do so separately.
+func (s *Store) lookupVersion(tx *bolt.Tx, pkgHash, verHash []byte, ver string) Result {
+	// Exact version hit.
+	if b := tx.Bucket(bucketVersion); b != nil {
+		if v := b.Get(append(pkgHash, verHash...)); v != nil {
+			return Result{OSVID: string(v), MatchLevel: "version"}
+		}
+	}
+	// Semver range fallback.
+	if b := tx.Bucket(bucketSemver); b != nil {
+		if v := b.Get(pkgHash); v != nil {
+			if r, ok := s.evalRangesCached(pkgHash, v, ver); ok {
+				return Result{OSVID: r.OSVID, MatchLevel: "version"}
+			}
+		}
+	}
+	return Result{}
 }
 
 // Build writes a new bbolt database at path.
@@ -248,17 +245,29 @@ func verHashKey(ver string) []byte {
 
 func truncHash(s string) []byte {
 	sum := sha256.Sum256([]byte(s))
-	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, binary.BigEndian.Uint64(sum[:8]))
-	return key
+	// 8 bytes (64-bit key). Birthday-paradox collision probability reaches ~50% at ~4.3 billion
+	// entries; the ossf/malicious-packages dataset is currently ~250k entries, well below that bound.
+	return sum[:8]
 }
 
-// evalRanges decodes a gob-encoded []rangeEntry and returns the first matching range for ver.
-func evalRanges(data []byte, ver string) (rangeEntry, bool) {
+// evalRangesCached decodes a gob-encoded []rangeEntry (caching the decoded result) and
+// returns the first matching range for ver. The store is read-only after Open, so the
+// cache is safe to populate lazily and never needs invalidation.
+func (s *Store) evalRangesCached(pkgHash []byte, data []byte, ver string) (rangeEntry, bool) {
+	cacheKey := string(pkgHash)
+	if cached, ok := s.rangeCache.Load(cacheKey); ok {
+		return matchRanges(cached.([]rangeEntry), ver)
+	}
 	var entries []rangeEntry
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&entries); err != nil {
 		return rangeEntry{}, false
 	}
+	s.rangeCache.Store(cacheKey, entries)
+	return matchRanges(entries, ver)
+}
+
+// matchRanges evaluates pre-decoded range entries against ver.
+func matchRanges(entries []rangeEntry, ver string) (rangeEntry, bool) {
 	rs := version.NewRangeSet()
 	for _, e := range entries {
 		rs.Add(version.Range{

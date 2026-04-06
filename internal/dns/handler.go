@@ -27,6 +27,9 @@ type Handler struct {
 // storerWrapper boxes the interface into a concrete pointer for atomic.Pointer.
 type storerWrapper struct{ s Storer }
 
+// pkgLabelLen is the base32-encoded length of an 8-byte hash, with no padding.
+const pkgLabelLen = 13
+
 // NewHandler returns a Handler wired to the given store.
 func NewHandler(s Storer, zone string, ttlHit, ttlMiss uint32) *Handler {
 	h := &Handler{zone: zone, ttlHit: ttlHit, ttlMiss: ttlMiss}
@@ -35,12 +38,15 @@ func NewHandler(s Storer, zone string, ttlHit, ttlMiss uint32) *Handler {
 }
 
 // SwapStore atomically replaces the store and returns the old one for closing.
+// bbolt's Close blocks until all active read transactions drain, so in-flight
+// DNS goroutines that already loaded the old store pointer are safe to complete.
 func (h *Handler) SwapStore(s Storer) Storer {
 	old := h.store.Swap(&storerWrapper{s})
 	return old.s
 }
 
 // ServeDNS handles incoming DNS queries.
+// TODO(security): add rate limiting before public deployment
 func (h *Handler) ServeDNS(w miekgdns.ResponseWriter, req *miekgdns.Msg) {
 	msg := new(miekgdns.Msg)
 	msg.SetReply(req)
@@ -124,7 +130,7 @@ func parseLabels(qname, zone string) (verLabel, pkgLabel, sublabel string, ok bo
 		return parts[0], parts[1], "v", true
 	case len(parts) == 2 && parts[1] == "p":
 		// <pkgLabel>.p
-		if len(parts[0]) != 13 {
+		if len(parts[0]) != pkgLabelLen {
 			return "", "", "", false
 		}
 		return "", parts[0], "p", true

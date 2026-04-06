@@ -1,6 +1,8 @@
 module github.com/chromatic/malicious-packages-dns-server
 
-go 1.24.4
+go 1.24.0
+
+toolchain go1.24.4
 
 require (
 	github.com/blang/semver/v4 v4.0.0

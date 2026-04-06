@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,24 @@ func Build(repoPath, outPath string) error {
 			return nil
 		}
 
+		// Guard against symlinks escaping the repo directory.
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("evalSymlinks %s: %w", path, err)
+		}
+		absResolved, err := filepath.Abs(resolved)
+		if err != nil {
+			return fmt.Errorf("abs resolved path: %w", err)
+		}
+		absRepo, err := filepath.Abs(repoPath)
+		if err != nil {
+			return fmt.Errorf("abs repoPath: %w", err)
+		}
+		if !strings.HasPrefix(absResolved, absRepo+string(filepath.Separator)) && absResolved != absRepo {
+			slog.Warn("skipping symlink outside repo", "path", path, "resolved", absResolved)
+			return nil
+		}
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", path, err)
@@ -60,6 +79,7 @@ func Build(repoPath, outPath string) error {
 
 		var rec osvRecord
 		if err := json.Unmarshal(data, &rec); err != nil {
+			slog.Warn("skipping malformed OSV file", "path", path, "err", err)
 			return nil // skip malformed files
 		}
 
@@ -82,30 +102,37 @@ func Build(repoPath, outPath string) error {
 					packageEntries[pkgKey] = rec.ID
 					continue
 				}
-				var introduced, fixed string
+				// OSV SEMVER ranges can contain multiple (introduced, fixed) event pairs.
+				// Emit one version.Range per pair so all affected spans are captured.
+				var currentIntroduced string
 				for _, e := range r.Events {
 					if e.Introduced != "" {
-						introduced = e.Introduced
+						currentIntroduced = e.Introduced
 					}
-					if e.Fixed != "" {
-						fixed = e.Fixed
+					if e.Fixed != "" && currentIntroduced != "" {
+						semverRanges = append(semverRanges, version.Range{
+							Ecosystem:  eco,
+							Name:       name,
+							Introduced: currentIntroduced,
+							Fixed:      e.Fixed,
+							OSVID:      rec.ID,
+						})
+						currentIntroduced = ""
 					}
 				}
-				// SEMVER with introduced="0" and no fixed means all versions
-				// are affected — treat as a package-level block rather than
-				// storing a vacuous range entry.
-				if (introduced == "0" || introduced == "") && fixed == "" {
-					packageEntries[pkgKey] = rec.ID
-					continue
-				}
-				if introduced != "" {
+				// Trailing open-ended range (introduced with no following fixed).
+				if currentIntroduced != "" && currentIntroduced != "0" {
 					semverRanges = append(semverRanges, version.Range{
 						Ecosystem:  eco,
 						Name:       name,
-						Introduced: introduced,
-						Fixed:      fixed,
+						Introduced: currentIntroduced,
 						OSVID:      rec.ID,
 					})
+				}
+				// SEMVER with only introduced="0" and no fixed means all versions
+				// are affected — treat as a package-level block.
+				if currentIntroduced == "0" {
+					packageEntries[pkgKey] = rec.ID
 				}
 			}
 			// No ranges at all → package-level block.

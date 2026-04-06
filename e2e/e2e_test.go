@@ -147,7 +147,7 @@ func assertNXDOMAIN(t *testing.T, msg *miekgdns.Msg) {
 
 func TestE2E_ExactVersionHit(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	msg := ask(t, addr, vName("pypi", "malicious-pkg", "1.0.0"))
 	assertHit(t, msg, "MAL-2024-001", "version")
@@ -155,7 +155,7 @@ func TestE2E_ExactVersionHit(t *testing.T) {
 
 func TestE2E_ExactVersionHitSecondVersion(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	msg := ask(t, addr, vName("pypi", "malicious-pkg", "1.0.1"))
 	assertHit(t, msg, "MAL-2024-001", "version")
@@ -163,7 +163,7 @@ func TestE2E_ExactVersionHitSecondVersion(t *testing.T) {
 
 func TestE2E_ExactVersionMissWrongVersion(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	msg := ask(t, addr, vName("pypi", "malicious-pkg", "2.0.0"))
 	assertNXDOMAIN(t, msg)
@@ -171,7 +171,7 @@ func TestE2E_ExactVersionMissWrongVersion(t *testing.T) {
 
 func TestE2E_ExactVersionMissUnknownPackage(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	msg := ask(t, addr, vName("pypi", "clean-pkg", "1.0.0"))
 	assertNXDOMAIN(t, msg)
@@ -179,7 +179,7 @@ func TestE2E_ExactVersionMissUnknownPackage(t *testing.T) {
 
 func TestE2E_PackageLevelHit(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	msg := ask(t, addr, pName("npm", "@scope/scoped-evil"))
 	assertHit(t, msg, "MAL-2024-003", "package")
@@ -187,7 +187,7 @@ func TestE2E_PackageLevelHit(t *testing.T) {
 
 func TestE2E_PackageLevelMissUnknownPackage(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	msg := ask(t, addr, pName("npm", "clean-package"))
 	assertNXDOMAIN(t, msg)
@@ -195,7 +195,7 @@ func TestE2E_PackageLevelMissUnknownPackage(t *testing.T) {
 
 func TestE2E_SemverInRange(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	// 1.1.0 is in [1.0.0, 1.2.0)
 	msg := ask(t, addr, vName("npm", "evil-package", "1.1.0"))
@@ -204,7 +204,7 @@ func TestE2E_SemverInRange(t *testing.T) {
 
 func TestE2E_SemverAtIntroducedBoundary(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	// 1.0.0 is the introduced version — should be a hit
 	msg := ask(t, addr, vName("npm", "evil-package", "1.0.0"))
@@ -213,7 +213,7 @@ func TestE2E_SemverAtIntroducedBoundary(t *testing.T) {
 
 func TestE2E_SemverBelowRange(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	// 0.9.9 is before introduced — miss
 	msg := ask(t, addr, vName("npm", "evil-package", "0.9.9"))
@@ -222,7 +222,7 @@ func TestE2E_SemverBelowRange(t *testing.T) {
 
 func TestE2E_SemverAtFixedBoundary(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	// 1.2.0 is the fixed version — excluded, should be miss
 	msg := ask(t, addr, vName("npm", "evil-package", "1.2.0"))
@@ -231,7 +231,7 @@ func TestE2E_SemverAtFixedBoundary(t *testing.T) {
 
 func TestE2E_SemverAboveRange(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	// 2.0.0 is above fixed — miss
 	msg := ask(t, addr, vName("npm", "evil-package", "2.0.0"))
@@ -240,7 +240,7 @@ func TestE2E_SemverAboveRange(t *testing.T) {
 
 func TestE2E_VersionHitDoesNotRespondOnPackageSublabel(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	// pypi:malicious-pkg is only in the version bucket, not the package bucket
 	msg := ask(t, addr, pName("pypi", "malicious-pkg"))
@@ -249,7 +249,7 @@ func TestE2E_VersionHitDoesNotRespondOnPackageSublabel(t *testing.T) {
 
 func TestE2E_PackageHitDoesNotRespondOnVersionSublabel(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	// npm:@scope/scoped-evil is only in the package bucket
 	msg := ask(t, addr, vName("npm", "@scope/scoped-evil", "1.0.0"))
@@ -258,7 +258,7 @@ func TestE2E_PackageHitDoesNotRespondOnVersionSublabel(t *testing.T) {
 
 func TestE2E_MalformedLabelNXDOMAIN(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	// Label that doesn't match our format at all
 	msg := ask(t, addr, "notourlabel.v."+testZone)
@@ -267,7 +267,7 @@ func TestE2E_MalformedLabelNXDOMAIN(t *testing.T) {
 
 func TestE2E_WrongZoneNXDOMAIN(t *testing.T) {
 	addr, cleanup := testServer(t)
-	defer cleanup()
+	t.Cleanup(cleanup)
 
 	msg := ask(t, addr, vName("pypi", "malicious-pkg", "1.0.0")[:len(vName("pypi", "malicious-pkg", "1.0.0"))-len(testZone)]+"example.com.")
 	assertNXDOMAIN(t, msg)
