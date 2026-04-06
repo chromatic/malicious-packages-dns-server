@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
     tags: ['v*.*.*']
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'docker/Dockerfile'
+      - '.github/workflows/docker.yml'
 
 jobs:
   build:
