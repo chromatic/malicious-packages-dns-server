@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"encoding/gob"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -157,7 +158,41 @@ func (s *Store) lookupVersion(tx *bolt.Tx, pkgHash, verHash []byte, ver string) 
 // Build writes a new bbolt database at path.
 // versionEntries keys: "ecosystem:name:version"; packageEntries keys: "ecosystem:name".
 // ranges are stored in the semver bucket for query-time evaluation.
+//
+// The database is written to a temp file with FillPercent=1.0 (safe because it is
+// written once and never updated), then compacted into path to reclaim freelist pages.
 func Build(path string, versionEntries, packageEntries map[string]string, ranges []version.Range) error {
+	// Write to a temp file alongside path so the final Compact rename is on the same filesystem.
+	tmp := path + ".tmp"
+	if err := buildInto(tmp, versionEntries, packageEntries, ranges); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+
+	src, err := bolt.Open(tmp, 0600, &bolt.Options{ReadOnly: true})
+	if err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("store.Build compact open src: %w", err)
+	}
+	dst, err := bolt.Open(path, 0600, nil)
+	if err != nil {
+		src.Close()
+		os.Remove(tmp)
+		return fmt.Errorf("store.Build compact open dst: %w", err)
+	}
+	if err := bolt.Compact(dst, src, 0); err != nil {
+		dst.Close()
+		src.Close()
+		os.Remove(tmp)
+		return fmt.Errorf("store.Build compact: %w", err)
+	}
+	dst.Close()
+	src.Close()
+	os.Remove(tmp)
+	return nil
+}
+
+func buildInto(path string, versionEntries, packageEntries map[string]string, ranges []version.Range) error {
 	db, err := bolt.Open(path, 0600, nil)
 	if err != nil {
 		return fmt.Errorf("store.Build: %w", err)
@@ -177,6 +212,12 @@ func Build(path string, versionEntries, packageEntries map[string]string, ranges
 		if err != nil {
 			return err
 		}
+
+		// The database is written once and never updated, so pages can be packed
+		// tightly. FillPercent=1.0 tells bbolt not to reserve space for future splits.
+		vb.FillPercent = 1.0
+		pb.FillPercent = 1.0
+		sb.FillPercent = 1.0
 
 		for k, osvID := range versionEntries {
 			// k = "ecosystem:name:version"
