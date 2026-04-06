@@ -37,7 +37,7 @@ type Result struct {
 // Store is a read-only view of the bbolt database.
 type Store struct {
 	db         *bolt.DB
-	rangeCache sync.Map // key: string(pkgHash), value: []rangeEntry
+	rangeCache sync.Map // key: [8]byte (pkgHash), value: *version.RangeSet
 }
 
 // Open opens an existing bbolt database file for reading.
@@ -83,16 +83,19 @@ func (s *Store) Lookup(ecosystem, name, ver string) (Result, bool) {
 // verLabel = base32(version string), pkgLabel = base32(sha256(ecosystem:name)[:8])
 // bucket is "v" or "p".
 func (s *Store) LookupHash(verLabel, pkgLabel, bucket string) (Result, bool) {
+	// pkgLabel is always 13 chars → 8 bytes. Decode into a stack-allocated array.
+	var pkgHash [8]byte
+	n, err := encoding.Decode(pkgHash[:], []byte(pkgLabel))
+	if err != nil || n != 8 {
+		return Result{}, false
+	}
+
 	switch bucket {
 	case "p":
-		pkgHash, err := encoding.DecodeString(pkgLabel)
-		if err != nil {
-			return Result{}, false
-		}
 		var result Result
 		_ = s.db.View(func(tx *bolt.Tx) error {
 			if b := tx.Bucket(bucketPackage); b != nil {
-				if v := b.Get(pkgHash); v != nil {
+				if v := b.Get(pkgHash[:]); v != nil {
 					result = Result{OSVID: string(v), MatchLevel: "package"}
 				}
 			}
@@ -104,10 +107,6 @@ func (s *Store) LookupHash(verLabel, pkgLabel, bucket string) (Result, bool) {
 		return result, true
 
 	case "v":
-		pkgHash, err := encoding.DecodeString(pkgLabel)
-		if err != nil {
-			return Result{}, false
-		}
 		// verLabel is base32(plaintext version string). The decoded bytes are always
 		// treated as a string for semver parsing — never executed or passed to unsafe APIs.
 		verBytes, err := encoding.DecodeString(verLabel)
@@ -119,7 +118,7 @@ func (s *Store) LookupHash(verLabel, pkgLabel, bucket string) (Result, bool) {
 
 		var result Result
 		_ = s.db.View(func(tx *bolt.Tx) error {
-			result = s.lookupVersion(tx, pkgHash, verHash, ver)
+			result = s.lookupVersion(tx, pkgHash[:], verHash, ver)
 			return nil
 		})
 		if result.MatchLevel == "" {
@@ -135,9 +134,12 @@ func (s *Store) LookupHash(verLabel, pkgLabel, bucket string) (Result, bool) {
 // lookupVersion is the shared transaction helper for exact-version + semver-range lookups.
 // It does NOT check the package bucket; callers that need package-level fallback must do so separately.
 func (s *Store) lookupVersion(tx *bolt.Tx, pkgHash, verHash []byte, ver string) Result {
-	// Exact version hit.
+	// Exact version hit. Use a stack-allocated [16]byte key to avoid a heap allocation per query.
 	if b := tx.Bucket(bucketVersion); b != nil {
-		if v := b.Get(append(pkgHash, verHash...)); v != nil {
+		var key [16]byte
+		copy(key[:8], pkgHash)
+		copy(key[8:], verHash)
+		if v := b.Get(key[:]); v != nil {
 			return Result{OSVID: string(v), MatchLevel: "version"}
 		}
 	}
@@ -250,24 +252,27 @@ func truncHash(s string) []byte {
 	return sum[:8]
 }
 
-// evalRangesCached decodes a gob-encoded []rangeEntry (caching the decoded result) and
+// evalRangesCached decodes a gob-encoded []rangeEntry (caching the parsed RangeSet) and
 // returns the first matching range for ver. The store is read-only after Open, so the
 // cache is safe to populate lazily and never needs invalidation.
+//
+// The cache key is [8]byte (not string) to avoid a heap allocation on every lookup.
 func (s *Store) evalRangesCached(pkgHash []byte, data []byte, ver string) (rangeEntry, bool) {
-	cacheKey := string(pkgHash)
-	if cached, ok := s.rangeCache.Load(cacheKey); ok {
-		return matchRanges(cached.([]rangeEntry), ver)
+	var key [8]byte
+	copy(key[:], pkgHash)
+
+	if cached, ok := s.rangeCache.Load(key); ok {
+		r, ok := cached.(*version.RangeSet).LookupVersion(ver)
+		if !ok {
+			return rangeEntry{}, false
+		}
+		return rangeEntry{OSVID: r.OSVID}, true
 	}
+
 	var entries []rangeEntry
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&entries); err != nil {
 		return rangeEntry{}, false
 	}
-	s.rangeCache.Store(cacheKey, entries)
-	return matchRanges(entries, ver)
-}
-
-// matchRanges evaluates pre-decoded range entries against ver.
-func matchRanges(entries []rangeEntry, ver string) (rangeEntry, bool) {
 	rs := version.NewRangeSet()
 	for _, e := range entries {
 		rs.Add(version.Range{
@@ -276,6 +281,8 @@ func matchRanges(entries []rangeEntry, ver string) (rangeEntry, bool) {
 			OSVID:      e.OSVID,
 		})
 	}
+	s.rangeCache.Store(key, rs)
+
 	r, ok := rs.LookupVersion(ver)
 	if !ok {
 		return rangeEntry{}, false

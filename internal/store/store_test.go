@@ -156,3 +156,77 @@ func TestLookupSemverRangeMiss(t *testing.T) {
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
+
+func BenchmarkLookupHashVersionHit(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "bench.bolt")
+	if err := store.Build(path,
+		map[string]string{"npm:lodash:4.17.11": "MAL-2024-001"},
+		nil, nil,
+	); err != nil {
+		b.Fatal(err)
+	}
+	s, err := store.Open(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer s.Close()
+
+	verLabel := store.VersionLabel("4.17.11")
+	pkgLabel := store.PkgHashLabel("npm", "lodash")
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		s.LookupHash(verLabel, pkgLabel, "v")
+	}
+}
+
+func BenchmarkLookupHashVersionMiss(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "bench.bolt")
+	if err := store.Build(path,
+		map[string]string{"npm:lodash:4.17.11": "MAL-2024-001"},
+		nil, nil,
+	); err != nil {
+		b.Fatal(err)
+	}
+	s, err := store.Open(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer s.Close()
+
+	verLabel := store.VersionLabel("4.17.99")
+	pkgLabel := store.PkgHashLabel("npm", "lodash")
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		s.LookupHash(verLabel, pkgLabel, "v")
+	}
+}
+
+func BenchmarkLookupHashSemverCacheHit(b *testing.B) {
+	path := filepath.Join(b.TempDir(), "bench.bolt")
+	if err := store.Build(path, nil, nil, []version.Range{
+		{Ecosystem: "npm", Name: "evil-package", Introduced: "1.0.0", Fixed: "1.2.0", OSVID: "MAL-2024-002"},
+	}); err != nil {
+		b.Fatal(err)
+	}
+	s, err := store.Open(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer s.Close()
+
+	verLabel := store.VersionLabel("1.1.0")
+	pkgLabel := store.PkgHashLabel("npm", "evil-package")
+
+	// Warm the cache.
+	s.LookupHash(verLabel, pkgLabel, "v")
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for b.Loop() {
+		s.LookupHash(verLabel, pkgLabel, "v")
+	}
+}
