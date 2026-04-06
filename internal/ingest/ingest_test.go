@@ -4,8 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/chromatic/malicious-packages-dns/internal/ingest"
-	"github.com/chromatic/malicious-packages-dns/internal/store"
+	"github.com/chromatic/malicious-packages-dns-server/internal/ingest"
+	"github.com/chromatic/malicious-packages-dns-server/internal/store"
 )
 
 // fixtureDir points at the repo-level testdata directory.

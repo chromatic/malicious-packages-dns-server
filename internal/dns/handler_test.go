@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chromatic/malicious-packages-dns/internal/dns"
-	"github.com/chromatic/malicious-packages-dns/internal/store"
+	"github.com/chromatic/malicious-packages-dns-server/internal/dns"
+	"github.com/chromatic/malicious-packages-dns-server/internal/store"
 	miekgdns "github.com/miekg/dns"
 )
 

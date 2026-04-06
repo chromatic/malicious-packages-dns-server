@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/chromatic/malicious-packages-dns/internal/version"
+	"github.com/chromatic/malicious-packages-dns-server/internal/version"
 	bolt "go.etcd.io/bbolt"
 )
 

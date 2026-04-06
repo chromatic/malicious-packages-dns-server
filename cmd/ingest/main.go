@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/chromatic/malicious-packages-dns/internal/ingest"
+	"github.com/chromatic/malicious-packages-dns-server/internal/ingest"
 )
 
 func main() {

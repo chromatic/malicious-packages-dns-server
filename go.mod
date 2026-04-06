@@ -1,4 +1,4 @@
-module github.com/chromatic/malicious-packages-dns
+module github.com/chromatic/malicious-packages-dns-server
 
 go 1.24.4
 

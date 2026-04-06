@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	internaldns "github.com/chromatic/malicious-packages-dns/internal/dns"
-	"github.com/chromatic/malicious-packages-dns/internal/store"
-	"github.com/chromatic/malicious-packages-dns/internal/version"
+	internaldns "github.com/chromatic/malicious-packages-dns-server/internal/dns"
+	"github.com/chromatic/malicious-packages-dns-server/internal/store"
+	"github.com/chromatic/malicious-packages-dns-server/internal/version"
 	miekgdns "github.com/miekg/dns"
 )
 

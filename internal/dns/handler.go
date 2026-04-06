@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	miekgdns "github.com/miekg/dns"
-	"github.com/chromatic/malicious-packages-dns/internal/store"
+	"github.com/chromatic/malicious-packages-dns-server/internal/store"
 )
 
 // Storer is the interface the Handler needs from the store.

@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	internaldns "github.com/chromatic/malicious-packages-dns/internal/dns"
-	"github.com/chromatic/malicious-packages-dns/internal/store"
+	internaldns "github.com/chromatic/malicious-packages-dns-server/internal/dns"
+	"github.com/chromatic/malicious-packages-dns-server/internal/store"
 	miekgdns "github.com/miekg/dns"
 )
 

@@ -3,7 +3,7 @@ package version_test
 import (
 	"testing"
 
-	"github.com/chromatic/malicious-packages-dns/internal/version"
+	"github.com/chromatic/malicious-packages-dns-server/internal/version"
 )
 
 func TestSemverRangeHit(t *testing.T) {
